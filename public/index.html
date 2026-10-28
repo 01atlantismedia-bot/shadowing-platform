@@ -180,9 +180,14 @@ details.card>summary{cursor:pointer;font-weight:600}details.card[open]>summary{m
  body.pin #subs{font-size:17px;min-height:0}
 }
 @media(max-width:860px){#cardPlayer{top:58px!important}}
+.wm{position:fixed;right:14px;bottom:12px;z-index:40;pointer-events:none;background:var(--accent);color:var(--onacc);opacity:.85;font-weight:700;letter-spacing:.04em;font-size:13px;padding:6px 14px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+#cardLong{grid-column:1/-1}
+@media(min-width:861px){#cardLong{order:4}}
+@media(max-width:860px){#cardLong{order:2}}
 </style>
 </head>
 <body>
+<div class="wm">Akmal speaking</div>
 <header class="top">
   <button class="brand" id="brand"><span class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M3 15c3-8 6-8 9 0s6 8 9 0"/></svg></span><b>shadowing</b><span class="w2">studio</span></button>
   <nav id="nav"><button data-v="discover">Discover</button><button data-v="practice">Practice studio</button><button data-v="rec">My recordings</button></nav>
@@ -268,6 +273,16 @@ details.card>summary{cursor:pointer;font-weight:600}details.card[open]>summary{m
     <h2><span>Choose your part</span><span class="hint" id="rangeInfo"></span></h2>
     <div class="hint" style="margin:0 0 8px">Long video? Practise just one stretch. Play the video, then tap <b>Start here</b> and <b>End here</b>. The rest stays saved, just hidden.</div>
     <div class="row"><button id="rStart" class="small">⤒ Start here</button><button id="rEnd" class="small">⤓ End here</button><button id="rAll" class="small">Whole video</button><button id="rPlay" class="small primary">▶ Play my part</button></div>
+  </div>
+
+  <div class="card" id="cardLong">
+    <h2><span>Shadow a longer stretch</span><span class="hint" id="longInfo"></span></h2>
+    <div class="hint" style="margin:0 0 8px">Uses your chosen part (or the whole video). Wear headphones so the mic does not hear the speaker.</div>
+    <div class="seg"><button id="lmAlong" class="on">Along with the speaker</button><button id="lmAfter">Right after the speaker</button></div>
+    <div class="row"><label class="hint" id="chunkWrap" style="display:none">Speaker plays about <select id="chunkLen"><option value="5">5 sec</option><option value="10" selected>10 sec</option><option value="20">20 sec</option><option value="30">30 sec</option></select>, then it is your turn</label>
+      <label class="hint"><input type="checkbox" id="longRec" checked> Record me</label></div>
+    <div class="row"><button class="primary" id="longGo">● Start</button><button id="longNext" class="small" style="display:none">Skip ahead ▶</button><span id="longStatus" class="hint" style="font-weight:600"></span></div>
+    <div class="takes" id="longTakes"></div>
   </div>
 
   <details class="card teacher" id="cardPaste">
@@ -425,7 +440,7 @@ function playOrig(o){
   o=Object.assign({loop:$('loop').checked},o||{});
   P.seg(l.start,segEnd(S.active),o);
 }
-function stopAll(){ stopAuto(); P.stop(); }
+function stopAll(){ stopAuto(); if(L&&L.run) longFinish(true); P.stop(); }
 $('rate').onchange=()=>{ if(S.kind) P.rate(parseFloat($('rate').value)); };
 $('stopBtn').onclick=()=>{ if(S.kind) stopAll(); };
 
@@ -851,6 +866,7 @@ function rm(){
   rng(); const R=S.range;
   $('rm1').className=S.kind?'done':'on'; $('rm2').className=!S.kind?'':(R?'done':'on'); $('rm3').className=S.kind&&S.active>=0?'on':'';
   $('rangeInfo').textContent=!S.kind?'':(R?'Part: '+fmt(R.s||0)+' – '+(R.e==null?'end':fmt(R.e)):'Whole video');
+  renderLong();
 }
 $('rStart').onclick=()=>{ if(!S.kind){msg('Load a video first.');return;} msg(''); const t=nowT(), R=S.range||{}; setRange({s:t,e:(R.e!=null&&R.e>t)?R.e:null}); };
 $('rEnd').onclick=()=>{ if(!S.kind){msg('Load a video first.');return;} msg(''); const t=nowT(), R=S.range||{}; setRange({s:(R.s!=null&&R.s<t)?R.s:null,e:t}); };
@@ -877,6 +893,80 @@ FEATURED.forEach(f=>{
   go.onclick=()=>{ if(f.id){$('ytUrl').value='https://www.youtube.com/watch?v='+f.id; loadYoutube(f.id);} else window.open('https://www.youtube.com/results?search_query='+encodeURIComponent(f.q),'_blank','noopener'); };
   b.append(go); c.append(b); $('feat').append(c);
 });
+
+/* ---------- longer recordings ---------- */
+let L=null,longTok=0,lmode='along';
+const lineEnd=()=>{ for(let i=S.lines.length-1;i>=0;i--) if(S.lines[i].start!=null) return segEnd(i)||0; return 0; };
+const partRange=()=>{ const R=S.range||{}; return [R.s==null?0:R.s, R.e==null?(dur()||lineEnd()):R.e]; };
+const partKey=(a,b)=>S.key+'|part:'+Math.round(a)+'-'+Math.round(b);
+function chunkEnd(t,len,lim){
+  let e=t+len;
+  if(S.lines.some(l=>l.start!=null)){ let best=null; S.lines.forEach((l,i)=>{ if(l.start==null) return; const le=segEnd(i); if(le!=null&&le>t+1&&le>=t+len*0.6&&(best==null||le<best)) best=le; }); if(best!=null&&best<=t+len*2) e=best; }
+  return Math.min(e,lim);
+}
+function setLm(m){ lmode=m; $('lmAlong').classList.toggle('on',m==='along'); $('lmAfter').classList.toggle('on',m==='after'); $('chunkWrap').style.display=m==='after'?'inline':'none'; }
+$('lmAlong').onclick=()=>setLm('along'); $('lmAfter').onclick=()=>setLm('after');
+async function longStart(){
+  if(!S.kind){msg('Load a video first.');return;}
+  const [s0,e0]=partRange(); if(!(e0>s0)){msg('Press play once so the video length is known, or tap End here.');return;}
+  let mr=null,stream=null; const chunks=[];
+  if($('longRec').checked){
+    if(!navigator.mediaDevices||!window.MediaRecorder){msg("This browser can't record audio. Try Chrome or Safari.");return;}
+    try{stream=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){msg('Microphone blocked. Allow mic access in your browser (the site must be on HTTPS).');return;}
+    mr=new MediaRecorder(stream); mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  }
+  msg(''); stopAll(); const tok=++longTok, rate=parseFloat($('rate').value);
+  L={run:true,tok,mr,stream,chunks,key:partKey(s0,e0),s0,e0};
+  $('longGo').textContent='■ Stop & save'; const st=$('longStatus');
+  if(lmode==='along'){
+    st.textContent='🎤 Shadow along with the speaker…'; if(mr) mr.start();
+    P.seg(s0,e0,{rate,loop:false,cb:()=>longFinish(true)});
+  } else {
+    const len=parseFloat($('chunkLen').value); $('longNext').style.display='inline-block';
+    const step=t=>{
+      if(!L||L.tok!==tok) return; if(t>=e0-0.3){longFinish(true);return;}
+      const ce=chunkEnd(t,len,e0); if(mr&&mr.state==='recording') mr.pause(); st.textContent='👂 Listen…';
+      P.seg(t,ce,{rate,loop:false,cb:()=>{
+        if(!L||L.tok!==tok) return; st.textContent='🎤 Your turn: repeat it!';
+        if(mr){ mr.state==='paused'?mr.resume():(mr.state==='inactive'&&mr.start()); }
+        const next=()=>{ clearTimeout(L.wait); if(mr&&mr.state==='recording') mr.pause(); step(ce); };
+        L.skip=next; L.wait=setTimeout(next,((ce-t)/rate+1.2)*1000);
+      }});
+    };
+    step(s0);
+  }
+}
+function longFinish(save){
+  if(!L||!L.run) return; const l=L; L=null; l.run=false; clearTimeout(l.wait); segTok++; clearInterval(S.timer); P.pause();
+  $('longGo').textContent='● Start'; $('longNext').style.display='none';
+  const done=()=>{ if(l.stream) l.stream.getTracks().forEach(t=>t.stop()); };
+  if(l.mr&&l.mr.state!=='inactive'){
+    l.mr.onstop=async()=>{
+      done(); const blob=new Blob(l.chunks,{type:l.mr.mimeType||'audio/webm'});
+      if(save&&blob.size>500){ try{await DB.add({k:l.key,blob,ts:Date.now(),part:{s:l.s0,e:l.e0}});bump();$('longStatus').textContent='Saved ✓ Compare it below.';}catch(e){msg("Couldn't save the recording (storage full?).");} }
+      else $('longStatus').textContent=''; renderLong();
+    };
+    l.mr.stop();
+  } else { done(); $('longStatus').textContent=l.mr?'Nothing was recorded.':''; renderLong(); }
+}
+$('longGo').onclick=()=>{ if(L&&L.run) longFinish(true); else longStart(); };
+$('longNext').onclick=()=>{ if(L&&L.skip) L.skip(); };
+async function renderLong(){
+  const box=$('longTakes'), [s0,e0]=partRange();
+  $('longInfo').textContent=!S.kind?'':(S.range?'Your part: '+fmt(s0)+' – '+(S.range.e==null?'end':fmt(e0)):'Whole video');
+  if(!S.kind||!(e0>s0)){box.innerHTML='';return;}
+  let list=[]; try{list=await DB.list(partKey(s0,e0));}catch(e){}
+  list.sort((a,b)=>a.ts-b.ts); box.innerHTML='';
+  if(!list.length){box.append(h('div',{className:'hint',textContent:'No longer takes of this part yet.'}));return;}
+  list.forEach((t,n)=>{
+    const row=h('div',{className:'take'}); row.append('Take '+(n+1)+' · '+new Date(t.ts).toLocaleString([],{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
+    row.append(h('audio',{controls:true,src:urlFor(t)}));
+    row.append(h('button',{className:'small primary',textContent:'⇄ Original → Mine',onclick:()=>{ const pr=t.part||{s:s0,e:e0}; stopAll(); P.seg(pr.s,pr.e,{rate:1,loop:false,cb:()=>setTimeout(()=>playBlob(urlFor(t)),300)}); }}));
+    row.append(h('a',{href:urlFor(t),download:'long-take-'+(n+1)+'.'+((t.blob.type||'').includes('mp4')?'m4a':'webm'),textContent:'⬇ Save'}));
+    row.append(h('button',{className:'small',textContent:'✕',onclick:async()=>{await DB.del(t.id);urlCache.delete(t.id);renderLong();}}));
+    box.append(row);
+  });
+}
 
 /* ---------- views + themes ---------- */
 function setView(v){
@@ -905,7 +995,7 @@ async function renderRec(){
   const g={}; all.forEach(t=>(g[t.k]=g[t.k]||[]).push(t));
   Object.entries(g).sort((a,b)=>Math.max(...b[1].map(x=>x.ts))-Math.max(...a[1].map(x=>x.ts))).forEach(([k,list])=>{
     const [base,ln]=k.split('|'), n=+ln, sv=ls.get('shadow:'+base,null);
-    const c=h('div',{className:'card'}); c.append(h('h2',{textContent:'Line '+(n+1)+' · '+base.slice(0,14)}));
+    const c=h('div',{className:'card'}); c.append(h('h2',{textContent:(ln||'').startsWith('part:')?'Longer take · '+(ln.slice(5).split('-').map(x=>fmt(+x)).join(' – ')):'Line '+(n+1)+' · '+base.slice(0,14)}));
     if(sv&&sv.lines&&sv.lines[n]) c.append(h('p',{className:'recq',textContent:sv.lines[n].text}));
     const rs=ls.get('shadow:ratings',[]).filter(r=>r.k===k), L=f=>{const x=rs.filter(r=>r[f]!=null).slice(-1)[0];return x?x[f]:null;}, bits=[];
     if(L('s')!=null) bits.push('Closeness '+L('s')+'/5'); if(L('l')!=null) bits.push({'-1':'👎 Did not like it','0':'😐 OK','1':'👍 Loved it'}[L('l')]); if(L('c')!=null) bits.push('Confidence '+['','😕','😐','🙂','😍'][L('c')]);
