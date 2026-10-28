@@ -163,6 +163,23 @@ details.card>summary{cursor:pointer;font-weight:600}details.card[open]>summary{m
 .fb .tag{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
 .fb b{font-size:18px;font-weight:600}.fb small{color:var(--mute);margin-bottom:8px}
 @media(max-width:860px){#cardRange{order:2}}
+
+@media(min-width:861px){
+ main{max-width:1400px;grid-template-columns:minmax(320px,1fr) minmax(360px,1fr);align-items:start}
+ main .card{margin-bottom:0}
+ section{display:contents}
+ #roadmap,#banner,#cardLoad,#cardPlayer,#cardRange{grid-column:1/-1}
+ #roadmap{order:0}#banner{order:1}#cardLoad{order:2}#cardPlayer{order:3}#cardRange{order:4}
+ #cardPractice{order:5;grid-column:1}#cardTranscript{order:5;grid-column:2}
+ #cardHl{order:6;grid-column:1}#cardPaste{order:6;grid-column:2}#cardAssign{order:7;grid-column:1/-1}
+ #ytwrap{width:min(100%,calc(68vh*16/9));margin:0 auto}
+ video#media{max-height:68vh;margin:0 auto}
+ #subs{max-width:min(100%,calc(68vh*16/9));margin:10px auto 0;font-size:22px}
+ body.pin #cardPlayer{position:sticky;top:64px;z-index:30;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+ body.pin #ytwrap{width:min(100%,calc(36vh*16/9))}
+ body.pin #subs{font-size:17px;min-height:0}
+}
+@media(max-width:860px){#cardPlayer{top:58px!important}}
 </style>
 </head>
 <body>
@@ -240,6 +257,7 @@ details.card>summary{cursor:pointer;font-weight:600}details.card[open]>summary{m
       </label>
       <label class="hint"><input type="checkbox" id="loop" checked> Loop line</label>
       <label class="hint"><input type="checkbox" id="subsOn" checked> Subtitles</label>
+      <label class="hint"><input type="checkbox" id="pin"> Pin video</label>
       <button id="stopBtn" class="small">■ Stop</button>
       <button id="autoBtn" class="small" title="Plays a line, pauses so you can repeat it, then moves to the next. Hands-free.">🔁 Repeat-after-me</button>
     </div>
@@ -817,32 +835,35 @@ $('gM').onclick=()=>{pick.g='male';pick.who=null;$('vids').innerHTML='';renderPe
 $('gF').onclick=()=>{pick.g='female';pick.who=null;$('vids').innerHTML='';renderPeople();};
 
 /* ---------- part picker, subtitles, featured ---------- */
+function dur(){ try{ const d=S.kind==='yt'?S.yt.getDuration():media.duration; return isFinite(d)?d:0; }catch(e){return 0;} }
 function rng(){
-  if(S.rk!==S.key){S.rk=S.key;S.range=S.key?ls.get('shadow:range:'+S.key,null):null;}
-  let a=0,b=Math.max(0,S.lines.length-1);
-  if(S.range&&S.range.a<=S.range.b){a=Math.max(0,S.range.a);b=Math.min(b,S.range.b);}
-  if(a>b){a=0;b=Math.max(0,S.lines.length-1);}
-  return [a,b];
+  if(S.rk!==S.key){S.rk=S.key;S.range=S.key?ls.get('shadow:range2:'+S.key,null):null;}
+  const n=S.lines.length, all=[0,Math.max(0,n-1)], R=S.range;
+  if(!R||!n||!S.lines.some(l=>l.start!=null)) return all;
+  const s0=R.s==null?0:R.s, e0=R.e==null?Infinity:R.e; let a=-1,b=-1;
+  S.lines.forEach((l,i)=>{ if(l.start==null) return; const le=segEnd(i), end=le==null?l.start+7:le; if(end>s0+0.3&&l.start<e0){ if(a<0)a=i; b=i; } });
+  return a<0?all:[a,b];
 }
 const ra=()=>rng()[0], rb=()=>rng()[1];
-function setRange(a,b){ S.rk=S.key; S.range=a==null?null:{a,b}; ls.set('shadow:range:'+S.key,S.range); render(); }
-function lineNow(){ const t=P.t(); let r=-1; if(S.kind&&t>0) S.lines.forEach((l,i)=>{ if(l.start!=null&&l.start<=t+0.3) r=i; }); return r>=0?r:S.active; }
+function setRange(r){ S.rk=S.key; S.range=r; ls.set('shadow:range2:'+S.key,r); render(); }
+function nowT(){ const t=P.t(); return isFinite(t)?Math.round(t*10)/10:0; }
 function rm(){
-  const [a,b]=rng(), n=S.lines.length, has=n>0, part=!!S.range;
-  $('rm1').className=has?'done':'on'; $('rm2').className=!has?'':(part?'done':'on'); $('rm3').className=has&&S.active>=0?'on':'';
-  const e=has?segEnd(b):null;
-  $('rangeInfo').textContent=!has?'':(part?'Lines '+(a+1)+'–'+(b+1)+' of '+n+(S.lines[a].start!=null&&e!=null?' · '+fmt(S.lines[a].start)+'–'+fmt(e):''):'Whole video · '+n+' lines');
+  rng(); const R=S.range;
+  $('rm1').className=S.kind?'done':'on'; $('rm2').className=!S.kind?'':(R?'done':'on'); $('rm3').className=S.kind&&S.active>=0?'on':'';
+  $('rangeInfo').textContent=!S.kind?'':(R?'Part: '+fmt(R.s||0)+' – '+(R.e==null?'end':fmt(R.e)):'Whole video');
 }
-$('rStart').onclick=()=>{ const i=lineNow(); if(i<0||!S.lines.length){msg('Play the video first, then tap Start here.');return;} const b=rb(); setRange(i,i>b?S.lines.length-1:b); };
-$('rEnd').onclick=()=>{ const i=lineNow(); if(i<0||!S.lines.length){msg('Play the video first, then tap End here.');return;} const a=ra(); setRange(i<a?0:a,i); };
+$('rStart').onclick=()=>{ if(!S.kind){msg('Load a video first.');return;} msg(''); const t=nowT(), R=S.range||{}; setRange({s:t,e:(R.e!=null&&R.e>t)?R.e:null}); };
+$('rEnd').onclick=()=>{ if(!S.kind){msg('Load a video first.');return;} msg(''); const t=nowT(), R=S.range||{}; setRange({s:(R.s!=null&&R.s<t)?R.s:null,e:t}); };
 $('rAll').onclick=()=>setRange(null);
-$('rPlay').onclick=()=>{ if(!S.kind||!S.lines.length){msg('Load a clip first.');return;} const [a,b]=rng(), s0=S.lines[a].start, e=segEnd(b); if(s0==null||e==null){msg('This part has no timestamps yet.');return;} stopAll(); select(a,false); P.seg(s0,e,{rate:parseFloat($('rate').value),loop:false}); };
+$('rPlay').onclick=()=>{ if(!S.kind){msg('Load a video first.');return;} const R=S.range||{}; stopAll(); P.seg(R.s==null?0:R.s,R.e==null?(dur()||1e6):R.e,{rate:parseFloat($('rate').value),loop:false}); };
+$('pin').onchange=e=>document.body.classList.toggle('pin',e.target.checked);
 $('showAll').onchange=e=>$('transcript').classList.toggle('showall',e.target.checked);
 setInterval(()=>{
-  const el=$('subs');
-  if(!$('subsOn').checked||!S.kind||!S.lines.some(l=>l.start!=null)){el.style.display='none';return;}
-  const t=P.t(); let r=-1; S.lines.forEach((l,i)=>{ if(l.start!=null&&l.start<=t+0.2) r=i; });
-  el.style.display='block'; const tx=r>=0?S.lines[r].text:'…'; if(el.textContent!==tx) el.textContent=tx;
+  const el=$('subs'); if(!$('subsOn').checked||!S.kind){el.style.display='none';return;}
+  let tx='';
+  if(!S.lines.length) tx=$('msg').textContent.startsWith('Fetching')?'Loading subtitles…':'No subtitles loaded: captions could not be fetched for this video. Open “Paste your own transcript” below.';
+  else if(S.lines.some(l=>l.start!=null)){ const t=P.t(); let r=-1; S.lines.forEach((l,i)=>{ if(l.start!=null&&l.start<=t+0.2) r=i; }); tx=r>=0?S.lines[r].text:'…'; }
+  if(!tx){el.style.display='none';return;} el.style.display='block'; if(el.textContent!==tx) el.textContent=tx;
 },250);
 const FEATURED=[
   {id:'XnbCSboujF4',n:'Taylor Swift',t:'73 Questions · Vogue',tag:'Friendly & clear'},
